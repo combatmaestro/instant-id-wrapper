@@ -1,14 +1,21 @@
-FastAPI InstantID Face Swap API
-
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, Form
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from pydantic import BaseModel
 from io import BytesIO
 from PIL import Image
+import torch
+import base64
+import requests
 import uvicorn
+import os
+import numpy as np
 
+from diffusers import StableDiffusionXLPipeline
+from insightface.app import FaceAnalysis
+from transformers import CLIPImageProcessor
+
+# ========== FastAPI setup ==========
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,39 +24,62 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def load_instantid_pipeline():
-    print("[INFO] Simulating InstantID model loading...")
-    return lambda src, tgt, prompt: tgt  # dummy: returns target as result
+# ========== Model loading ==========
+print("[INFO] Loading InstantID components...")
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-model_pipeline = load_instantid_pipeline()
+face_analysis = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider"])
+face_analysis.prepare(ctx_id=0 if device == "cuda" else -1)
 
-@app.get("/")
-def root():
-    return {"message": "InstantID API is running"}
+pipe = StableDiffusionXLPipeline.from_pretrained(
+    "./models/sdxl",
+    torch_dtype=torch.float16,
+    variant="fp16"
+).to(device)
+pipe.enable_model_cpu_offload()
 
+# You can later load IP-Adapter + ControlNet
+
+# ========== Input model ==========
+class FaceSwapRequest(BaseModel):
+    source_url: str
+    target_url: str
+    prompt: str
+
+# ========== Endpoint ==========
 @app.post("/swap-face")
-async def swap_face(
-    source_image: UploadFile = File(...),
-    target_image: UploadFile = File(...),
-    prompt: Optional[str] = Form(None)
-):
+async def swap_face(request: FaceSwapRequest):
     try:
-        src_bytes = await source_image.read()
-        tgt_bytes = await target_image.read()
-        src_image = Image.open(BytesIO(src_bytes)).convert("RGB")
-        tgt_image = Image.open(BytesIO(tgt_bytes)).convert("RGB")
+        src_response = requests.get(request.source_url)
+        tgt_response = requests.get(request.target_url)
 
-        result_image = model_pipeline(src_image, tgt_image, prompt)
+        src_img = Image.open(BytesIO(src_response.content)).convert("RGB")
+        tgt_img = Image.open(BytesIO(tgt_response.content)).convert("RGB")
+
+        faces = face_analysis.get(np.array(src_img))
+        if not faces:
+            return {"status": "error", "message": "No face detected in source image."}
+
+        face_embedding = faces[0].embedding  # To use in IP-Adapter later
+
+        # 🛠 Replace below with actual face-swapped generation using InstantID
         output_buffer = BytesIO()
-        result_image.save(output_buffer, format="PNG")
-        output_buffer.seek(0)
+        tgt_img.save(output_buffer, format="PNG")
+        output_base64 = base64.b64encode(output_buffer.getvalue()).decode("utf-8")
 
         return {
             "status": "success",
-            "message": "Face swapped (mock). Replace with actual InstantID logic."
+            "message": "Face swapped successfully (stub).",
+            "output_base64": output_base64,
+            "mime_type": "image/png"
         }
+
     except Exception as e:
-        return {"status": "error", "message": str(e)}        
+        return {"status": "error", "message": str(e)}
+
+@app.get("/")
+def root():
+    return {"message": "InstantID API running with real model stubs."}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
