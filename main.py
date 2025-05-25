@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Form
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from io import BytesIO
@@ -6,13 +6,14 @@ from PIL import Image
 import torch
 import base64
 import requests
-import uvicorn
 import os
 import numpy as np
 
 from diffusers import StableDiffusionXLPipeline
 from insightface.app import FaceAnalysis
 from transformers import CLIPImageProcessor
+
+from ip_adapter.ip_adapter import IPAdapterXL  # Assuming you have this class from InstantX repo
 
 # ========== FastAPI setup ==========
 app = FastAPI()
@@ -28,7 +29,7 @@ app.add_middleware(
 print("[INFO] Loading InstantID components...")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-face_analysis = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider"])
+face_analysis = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
 face_analysis.prepare(ctx_id=0 if device == "cuda" else -1)
 
 pipe = StableDiffusionXLPipeline.from_pretrained(
@@ -38,7 +39,14 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
 ).to(device)
 pipe.enable_model_cpu_offload()
 
-# You can later load IP-Adapter + ControlNet
+image_processor = CLIPImageProcessor.from_pretrained("./models/sdxl")
+
+ip_adapter = IPAdapterXL(
+    pipe,
+    image_encoder_path="/workspace/instant-id-wrapper/models/controlnet/image_encoder",  # Adjust this path
+    ip_ckpt="./models/ip-adapter/ip-adapter_sdxl.bin",
+    device=device
+)
 
 # ========== Input model ==========
 class FaceSwapRequest(BaseModel):
@@ -60,16 +68,25 @@ async def swap_face(request: FaceSwapRequest):
         if not faces:
             return {"status": "error", "message": "No face detected in source image."}
 
-        face_embedding = faces[0].embedding  # To use in IP-Adapter later
+        face = faces[0]
+        face_img = Image.fromarray(face.crop_face())
 
-        # 🛠 Replace below with actual face-swapped generation using InstantID
+        images = ip_adapter.generate(
+            pil_image=tgt_img,
+            face_image=face_img,
+            prompt=request.prompt,
+            num_samples=1,
+            num_inference_steps=40,
+            seed=42
+        )
+
         output_buffer = BytesIO()
-        tgt_img.save(output_buffer, format="PNG")
+        images[0].save(output_buffer, format="PNG")
         output_base64 = base64.b64encode(output_buffer.getvalue()).decode("utf-8")
 
         return {
             "status": "success",
-            "message": "Face swapped successfully (stub).",
+            "message": "Face swapped successfully.",
             "output_base64": output_base64,
             "mime_type": "image/png"
         }
@@ -79,7 +96,8 @@ async def swap_face(request: FaceSwapRequest):
 
 @app.get("/")
 def root():
-    return {"message": "InstantID API running with real model stubs."}
+    return {"message": "InstantID API running with IP-Adapter + SDXL."}
 
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
