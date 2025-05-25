@@ -1,4 +1,9 @@
 fastapi
 uvicorn
+requests
 pillow
 torch
+numpy
+diffusers
+transformers
+insightface
