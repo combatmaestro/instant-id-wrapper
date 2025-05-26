@@ -44,12 +44,19 @@ pipe.enable_model_cpu_offload()
 image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14")
 
 
-ip_adapter = IPAdapterXL(
-    pipe,
-    image_encoder_path="/workspace/instant-id-wrapper/models/controlnet/image_encoder",  # Adjust this path
-    ip_ckpt="./models/ip-adapter/ip-adapter_sdxl.bin",
-    device=device
-)
+try:
+    ip_adapter = IPAdapterXL(
+        pipe,
+        image_encoder_path="/workspace/instant-id-wrapper/models/controlnet/image_encoder",
+        ip_ckpt="./models/ip-adapter/ip-adapter_sdxl.bin",
+        device=device
+    )
+except Exception as e:
+    import traceback
+    print("[FATAL ERROR] IPAdapter initialization failed!")
+    traceback.print_exc()
+    raise e
+
 
 # ========== Input model ==========
 class FaceSwapRequest(BaseModel):
