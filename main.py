@@ -39,7 +39,8 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
 ).to(device)
 pipe.enable_model_cpu_offload()
 
-image_processor = CLIPImageProcessor.from_pretrained("./models/sdxl")
+image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14")
+
 
 ip_adapter = IPAdapterXL(
     pipe,
