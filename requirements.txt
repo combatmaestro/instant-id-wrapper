@@ -1,9 +1,29 @@
+# Core APIs
 fastapi
 uvicorn
 requests
+
+# Image & Array Processing
 pillow
-torch
 numpy
-diffusers
-transformers
-insightface
+
+# Machine Learning + Generation
+torch==2.0.1+cu118
+torchvision==0.15.2+cu118
+torchaudio==2.0.2+cu118
+--extra-index-url https://download.pytorch.org/whl/cu118
+
+# Diffusion and Transformers
+diffusers==0.25.0
+transformers==4.36.2
+safetensors
+accelerate>=0.17.0
+
+# Face detection and ONNX runtime
+insightface==0.7.3
+onnxruntime-gpu  # If you use GPU
+# onnxruntime     # Use this instead if you are CPU-only
+
+# Required for IP-Adapter SDXL
+opencv-python
+scipy
