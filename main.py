@@ -37,8 +37,8 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
     "./models/sdxl",
     torch_dtype=torch.float16,
     variant="fp16"
-)
-pipe.enable_model_cpu_offload()
+).to("cuda")
+
 
 
 image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14")
