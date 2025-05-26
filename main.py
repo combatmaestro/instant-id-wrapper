@@ -29,15 +29,17 @@ app.add_middleware(
 print("[INFO] Loading InstantID components...")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-face_analysis = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
-face_analysis.prepare(ctx_id=0 if device == "cuda" else -1)
+face_analysis = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider"])
+face_analysis.prepare(ctx_id=0)
+
 
 pipe = StableDiffusionXLPipeline.from_pretrained(
     "./models/sdxl",
     torch_dtype=torch.float16,
     variant="fp16"
-).to(device)
+)
 pipe.enable_model_cpu_offload()
+
 
 image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14")
 
@@ -74,12 +76,12 @@ async def swap_face(request: FaceSwapRequest):
 
         images = ip_adapter.generate(
             pil_image=tgt_img,
-            face_image=face_img,
             prompt=request.prompt,
             num_samples=1,
             num_inference_steps=40,
             seed=42
         )
+
 
         output_buffer = BytesIO()
         images[0].save(output_buffer, format="PNG")
