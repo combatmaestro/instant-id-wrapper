@@ -83,11 +83,13 @@ async def swap_face(request: FaceSwapRequest):
 
         images = ip_adapter.generate(
             pil_image=tgt_img,
+            face_image=face_img,  # pass cropped source face
             prompt=request.prompt,
             num_samples=1,
             num_inference_steps=40,
             seed=42
         )
+
 
 
         output_buffer = BytesIO()
