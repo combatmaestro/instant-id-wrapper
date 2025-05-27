@@ -131,11 +131,13 @@ async def swap_face(request: FaceSwapRequest):
         tgt_np[y1:y2, x1:x2] = blended_face
         final_image = Image.fromarray(tgt_np)
 
+        from fastapi.responses import StreamingResponse
+
         output_buffer = BytesIO()
         final_image.save(output_buffer, format="PNG")
-        output_base64 = base64.b64encode(output_buffer.getvalue()).decode("utf-8")
+        output_buffer.seek(0)
 
-        return output_base64
+        return StreamingResponse(output_buffer, media_type="image/png")
 
     except Exception as e:
         tb = traceback.format_exc()
