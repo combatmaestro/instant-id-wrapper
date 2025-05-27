@@ -96,6 +96,11 @@ async def swap_face(request: FaceSwapRequest):
         print("[INFO] Using negative_prompt:", negative_prompt)
 
         # Generate a new face only (square output)
+        # Make width and height divisible by 8
+        w, h = face_img.width, face_img.height
+        w -= w % 8
+        h -= h % 8
+
         new_face_img = ip_adapter.generate(
             pil_image=face_img,
             face_image=face_img,
@@ -104,8 +109,8 @@ async def swap_face(request: FaceSwapRequest):
             num_samples=1,
             num_inference_steps=40,
             seed=42,
-            height=face_img.height,
-            width=face_img.width
+            height=h,
+            width=w
         )[0]
 
         new_face_np = np.array(new_face_img.resize((x2 - x1, y2 - y1)))
