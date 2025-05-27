@@ -138,17 +138,30 @@ async def swap_face(request: FaceSwapRequest):
             width=w
         )[0]
 
-        new_face_np = np.array(new_face_img.resize((x2 - x1, y2 - y1)))
+        # Resize generated face to match target face bounding box
+        new_face_img_resized = new_face_img.resize((x2 - x1, y2 - y1), Image.LANCZOS)
+        new_face_np = np.array(new_face_img_resized)
 
-        # Blend the generated face into the original target image with a soft mask
-        mask = np.zeros((y2 - y1, x2 - x1, 3), dtype=np.uint8)
-        cv2.circle(mask, ((x2 - x1) // 2, (y2 - y1) // 2), min((x2 - x1), (y2 - y1)) // 2, (255, 255, 255), -1)
+        # Align the generated face to target face landmarks
+        src_landmarks = np.array(face_src['kps'])
+        tgt_landmarks = np.array(face_tgt['kps'])
+
+        # Estimate similarity transform
+        transform_matrix, _ = cv2.estimateAffinePartial2D(src_landmarks, tgt_landmarks)
+
+        aligned_face = cv2.warpAffine(np.array(new_face_img_resized), transform_matrix, (tgt_np.shape[1], tgt_np.shape[0]))
+
+        # Create a binary mask for the aligned face
+        mask = np.zeros_like(tgt_np, dtype=np.uint8)
+        hull = cv2.convexHull(tgt_landmarks.astype(np.int32))
+        cv2.fillConvexPoly(mask, hull, (255, 255, 255))
         mask = cv2.GaussianBlur(mask, (31, 31), 0).astype(np.float32) / 255.0
 
-        face_region = tgt_np[y1:y2, x1:x2].astype(np.float32)
-        blended_face = (mask * new_face_np + (1 - mask) * face_region).astype(np.uint8)
-        tgt_np[y1:y2, x1:x2] = blended_face
-        final_image = Image.fromarray(tgt_np).convert("RGB")
+        # Blend aligned face with target
+        aligned_face = aligned_face.astype(np.float32)
+        target_area = tgt_np.astype(np.float32)
+        blended = (mask * aligned_face + (1 - mask) * target_area).astype(np.uint8)
+        final_image = Image.fromarray(blended).convert("RGB")
 
         from fastapi.responses import StreamingResponse
 
