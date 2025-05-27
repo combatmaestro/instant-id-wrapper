@@ -78,7 +78,7 @@ async def swap_face(request: FaceSwapRequest):
         print("[INFO] Detected source face[0]:", face_src)
 
         bbox_src = face_src.get('bbox')
-        if bbox is None or len(bbox) != 4:
+        if bbox_src is None or len(bbox_src) != 4:
             return {"status": "error", "message": "Invalid or missing bounding box for face."}
 
         x1, y1, x2, y2 = map(int, bbox)
