@@ -75,14 +75,17 @@ async def swap_face(request: FaceSwapRequest):
         face = faces[0]
         print("[INFO] Detected face[0]:", face)
 
-        if face is None or not hasattr(face, 'crop_face') or not callable(face.crop_face):
-            return {"status": "error", "message": "Face object invalid or crop_face() missing."}
+        bbox = face.get('bbox')
+        if bbox is None or len(bbox) != 4:
+            return {"status": "error", "message": "Invalid or missing bounding box for face."}
 
-        cropped = face.crop_face()
-        if cropped is None:
-            return {"status": "error", "message": "crop_face() returned None."}
+        x1, y1, x2, y2 = map(int, bbox)
+        cropped_np = np.array(src_img)[y1:y2, x1:x2]
 
-        face_img = Image.fromarray(cropped)
+        if cropped_np.size == 0:
+            return {"status": "error", "message": "Cropped face is empty."}
+
+        face_img = Image.fromarray(cropped_np)
 
         images = ip_adapter.generate(
             pil_image=tgt_img,
