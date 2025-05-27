@@ -81,13 +81,13 @@ async def swap_face(request: FaceSwapRequest):
         if bbox_src is None or len(bbox_src) != 4:
             return {"status": "error", "message": "Invalid or missing bounding box for face."}
 
-        x1, y1, x2, y2 = map(int, bbox)
-        h_tgt, w_tgt = tgt_np.shape[:2]
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w_tgt, x2), min(h_tgt, y2)
+        x1_src, y1_src, x2_src, y2_src = map(int, bbox_src)
+        h_src, w_src = src_img.size
+        x1_src, y1_src = max(0, x1_src), max(0, y1_src)
+        x2_src, y2_src = min(w_src, x2_src), min(h_src, y2_src)
 
-        if x2 <= x1 or y2 <= y1:
-            return {"status": "error", "message": "Bounding box resulted in invalid region."}
+        if x2_src <= x1_src or y2_src <= y1_src:
+            return {"status": "error", "message": "Source bounding box resulted in invalid region."}
         faces_tgt = face_analysis.get(np.array(tgt_img))
         if not faces_tgt:
             return {"status": "error", "message": "No face detected in target image."}
@@ -107,7 +107,7 @@ async def swap_face(request: FaceSwapRequest):
         if x2 <= x1 or y2 <= y1:
             return {"status": "error", "message": "Bounding box resulted in invalid region."}
 
-        cropped_np = np.array(src_img)[int(bbox_src[1]):int(bbox_src[3]), int(bbox_src[0]):int(bbox_src[2])]
+        cropped_np = np.array(src_img)[y1_src:y2_src, x1_src:x2_src]
 
         if cropped_np.size == 0:
             return {"status": "error", "message": "Cropped face is empty."}
