@@ -104,6 +104,8 @@ async def swap_face(request: FaceSwapRequest):
         }
 
     except Exception as e:
+        tb = traceback.format_exc()
+        print(tb)  # Logs full traceback
         return {"status": "error", "message": str(e)}
 
 @app.get("/")
