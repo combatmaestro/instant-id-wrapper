@@ -8,6 +8,7 @@ import torch
 import base64
 import requests
 import numpy as np
+import cv2
 
 from diffusers import StableDiffusionXLPipeline
 from insightface.app import FaceAnalysis
@@ -67,6 +68,7 @@ async def swap_face(request: FaceSwapRequest):
 
         src_img = Image.open(BytesIO(src_response.content)).convert("RGB")
         tgt_img = Image.open(BytesIO(tgt_response.content)).convert("RGB")
+        tgt_np = np.array(tgt_img)
 
         faces = face_analysis.get(np.array(src_img))
         if not faces:
@@ -87,29 +89,36 @@ async def swap_face(request: FaceSwapRequest):
 
         face_img = Image.fromarray(cropped_np)
 
-        prompt = request.prompt or "best quality, high quality"
+        prompt = request.prompt.strip() if request.prompt else "best quality, high quality"
         negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
 
-        images = ip_adapter.generate(
-            pil_image=tgt_img,
+        print("[INFO] Using prompt:", prompt)
+        print("[INFO] Using negative_prompt:", negative_prompt)
+
+        # Generate a new face only (square output)
+        new_face_img = ip_adapter.generate(
+            pil_image=face_img,
             face_image=face_img,
             prompt=prompt,
             negative_prompt=negative_prompt,
             num_samples=1,
             num_inference_steps=40,
-            seed=42
-        )
+            seed=42,
+            height=face_img.height,
+            width=face_img.width
+        )[0]
+
+        new_face_np = np.array(new_face_img.resize((x2 - x1, y2 - y1)))
+
+        # Paste the generated face into the original target image
+        tgt_np[y1:y2, x1:x2] = new_face_np
+        final_image = Image.fromarray(tgt_np)
 
         output_buffer = BytesIO()
-        images[0].save(output_buffer, format="PNG")
+        final_image.save(output_buffer, format="PNG")
         output_base64 = base64.b64encode(output_buffer.getvalue()).decode("utf-8")
 
-        return {
-            "status": "success",
-            "message": "Face swapped successfully.",
-            "output_base64": output_base64,
-            "mime_type": "image/png"
-        }
+        return output_base64
 
     except Exception as e:
         tb = traceback.format_exc()
