@@ -7,14 +7,13 @@ from PIL import Image
 import torch
 import base64
 import requests
-import os
 import numpy as np
 
 from diffusers import StableDiffusionXLPipeline
 from insightface.app import FaceAnalysis
 from transformers import CLIPImageProcessor
 
-from ip_adapter.ip_adapter import IPAdapterXL  # Assuming you have this class from InstantX repo
+from ip_adapter.ip_adapter import IPAdapterXL
 
 # ========== FastAPI setup ==========
 app = FastAPI()
@@ -30,20 +29,16 @@ app.add_middleware(
 print("[INFO] Loading InstantID components...")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-face_analysis = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider"])
+face_analysis = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
 face_analysis.prepare(ctx_id=0)
-
 
 pipe = StableDiffusionXLPipeline.from_pretrained(
     "./models/sdxl",
     torch_dtype=torch.float16,
     variant="fp16"
-).to("cuda")
-
-
+).to(device)
 
 image_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14")
-
 
 try:
     ip_adapter = IPAdapterXL(
@@ -53,11 +48,9 @@ try:
         device=device
     )
 except Exception as e:
-    import traceback
     print("[FATAL ERROR] IPAdapter initialization failed!")
     traceback.print_exc()
     raise e
-
 
 # ========== Input model ==========
 class FaceSwapRequest(BaseModel):
@@ -80,26 +73,25 @@ async def swap_face(request: FaceSwapRequest):
             return {"status": "error", "message": "No face detected in source image."}
 
         face = faces[0]
-        if face is None or not hasattr(face, 'crop_face') or face.crop_face is None:
-            raise ValueError("Face detection failed or crop_face method not available")
+        print("[INFO] Detected face[0]:", face)
+
+        if face is None or not hasattr(face, 'crop_face') or not callable(face.crop_face):
+            return {"status": "error", "message": "Face object invalid or crop_face() missing."}
 
         cropped = face.crop_face()
         if cropped is None:
-            raise ValueError("crop_face() returned None")
+            return {"status": "error", "message": "crop_face() returned None."}
 
         face_img = Image.fromarray(cropped)
-        # face_img = Image.fromarray(face.crop_face())
 
         images = ip_adapter.generate(
             pil_image=tgt_img,
-            face_image=face_img,  # pass cropped source face
+            face_image=face_img,
             prompt=request.prompt,
             num_samples=1,
             num_inference_steps=40,
             seed=42
         )
-
-
 
         output_buffer = BytesIO()
         images[0].save(output_buffer, format="PNG")
@@ -114,8 +106,8 @@ async def swap_face(request: FaceSwapRequest):
 
     except Exception as e:
         tb = traceback.format_exc()
-        print(tb)  # Logs full traceback
-        return {"status": "error", "message": str(e)}
+        print(tb)
+        return {"status": "error", "message": tb}
 
 @app.get("/")
 def root():
