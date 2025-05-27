@@ -67,12 +67,19 @@ async def swap_face(request: FaceSwapRequest):
             return {"status": "error", "message": "No face detected in source image."}
 
         face = faces[0]
-        embedding = face.embedding  # identity embedding
+        bbox = face.bbox.astype(int)
+        x1, y1, x2, y2 = bbox
+        face_np = np.array(src_img)[y1:y2, x1:x2]
+
+        if face_np.size == 0:
+            return {"status": "error", "message": "Face crop is empty."}
+
+        face_img = Image.fromarray(face_np)
 
         images = ip_adapter.generate(
             pil_image=tgt_img,
             face_image=None,
-            clip_image_embeds=torch.tensor(embedding).unsqueeze(0),
+            clip_image_embeds=torch.tensor(face.embedding).unsqueeze(0).to(device, dtype=torch.float16),
             prompt=request.prompt,
             negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality",
             num_samples=1,
