@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 import traceback
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from io import BytesIO
 from PIL import Image
 import torch
@@ -56,7 +56,7 @@ except Exception as e:
 class FaceSwapRequest(BaseModel):
     source_url: str
     target_url: str
-    prompt: str
+    prompt: str = Field(default="best quality, high quality")
 
 # ========== Endpoint ==========
 @app.post("/swap-face")
@@ -87,10 +87,14 @@ async def swap_face(request: FaceSwapRequest):
 
         face_img = Image.fromarray(cropped_np)
 
+        prompt = request.prompt or "best quality, high quality"
+        negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
+
         images = ip_adapter.generate(
             pil_image=tgt_img,
             face_image=face_img,
-            prompt=request.prompt,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
             num_samples=1,
             num_inference_steps=40,
             seed=42
