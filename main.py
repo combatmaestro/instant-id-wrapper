@@ -70,14 +70,14 @@ async def swap_face(request: FaceSwapRequest):
         tgt_img = Image.open(BytesIO(tgt_response.content)).convert("RGB")
         tgt_np = np.array(tgt_img)
 
-        faces = face_analysis.get(np.array(src_img))
-        if not faces:
+        faces_src = face_analysis.get(np.array(src_img))
+        if not faces_src:
             return {"status": "error", "message": "No face detected in source image."}
 
-        face = faces[0]
-        print("[INFO] Detected face[0]:", face)
+        face_src = faces_src[0]
+        print("[INFO] Detected source face[0]:", face_src)
 
-        bbox = face.get('bbox')
+        bbox_src = face_src.get('bbox')
         if bbox is None or len(bbox) != 4:
             return {"status": "error", "message": "Invalid or missing bounding box for face."}
 
@@ -88,7 +88,26 @@ async def swap_face(request: FaceSwapRequest):
 
         if x2 <= x1 or y2 <= y1:
             return {"status": "error", "message": "Bounding box resulted in invalid region."}
-        cropped_np = np.array(src_img)[y1:y2, x1:x2]
+        faces_tgt = face_analysis.get(np.array(tgt_img))
+        if not faces_tgt:
+            return {"status": "error", "message": "No face detected in target image."}
+
+        face_tgt = faces_tgt[0]
+        print("[INFO] Detected target face[0]:", face_tgt)
+
+        bbox_tgt = face_tgt.get('bbox')
+        if bbox_tgt is None or len(bbox_tgt) != 4:
+            return {"status": "error", "message": "Invalid or missing bounding box for target face."}
+
+        x1, y1, x2, y2 = map(int, bbox_tgt)
+        h_tgt, w_tgt = tgt_np.shape[:2]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w_tgt, x2), min(h_tgt, y2)
+
+        if x2 <= x1 or y2 <= y1:
+            return {"status": "error", "message": "Bounding box resulted in invalid region."}
+
+        cropped_np = np.array(src_img)[int(bbox_src[1]):int(bbox_src[3]), int(bbox_src[0]):int(bbox_src[2])]
 
         if cropped_np.size == 0:
             return {"status": "error", "message": "Cropped face is empty."}
@@ -129,7 +148,7 @@ async def swap_face(request: FaceSwapRequest):
         face_region = tgt_np[y1:y2, x1:x2].astype(np.float32)
         blended_face = (mask * new_face_np + (1 - mask) * face_region).astype(np.uint8)
         tgt_np[y1:y2, x1:x2] = blended_face
-        final_image = Image.fromarray(tgt_np)
+        final_image = Image.fromarray(tgt_np).convert("RGB")
 
         from fastapi.responses import StreamingResponse
 
