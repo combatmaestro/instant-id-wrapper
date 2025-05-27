@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import traceback
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from io import BytesIO
@@ -79,7 +80,15 @@ async def swap_face(request: FaceSwapRequest):
             return {"status": "error", "message": "No face detected in source image."}
 
         face = faces[0]
-        face_img = Image.fromarray(face.crop_face())
+        if face is None or not hasattr(face, 'crop_face') or face.crop_face is None:
+            raise ValueError("Face detection failed or crop_face method not available")
+
+        cropped = face.crop_face()
+        if cropped is None:
+            raise ValueError("crop_face() returned None")
+
+        face_img = Image.fromarray(cropped)
+        # face_img = Image.fromarray(face.crop_face())
 
         images = ip_adapter.generate(
             pil_image=tgt_img,
