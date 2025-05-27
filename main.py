@@ -82,6 +82,12 @@ async def swap_face(request: FaceSwapRequest):
             return {"status": "error", "message": "Invalid or missing bounding box for face."}
 
         x1, y1, x2, y2 = map(int, bbox)
+        h_tgt, w_tgt = tgt_np.shape[:2]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w_tgt, x2), min(h_tgt, y2)
+
+        if x2 <= x1 or y2 <= y1:
+            return {"status": "error", "message": "Bounding box resulted in invalid region."}
         cropped_np = np.array(src_img)[y1:y2, x1:x2]
 
         if cropped_np.size == 0:
@@ -115,8 +121,14 @@ async def swap_face(request: FaceSwapRequest):
 
         new_face_np = np.array(new_face_img.resize((x2 - x1, y2 - y1)))
 
-        # Paste the generated face into the original target image
-        tgt_np[y1:y2, x1:x2] = new_face_np
+        # Blend the generated face into the original target image with a soft mask
+        mask = np.zeros((y2 - y1, x2 - x1, 3), dtype=np.uint8)
+        cv2.circle(mask, ((x2 - x1) // 2, (y2 - y1) // 2), min((x2 - x1), (y2 - y1)) // 2, (255, 255, 255), -1)
+        mask = cv2.GaussianBlur(mask, (31, 31), 0).astype(np.float32) / 255.0
+
+        face_region = tgt_np[y1:y2, x1:x2].astype(np.float32)
+        blended_face = (mask * new_face_np + (1 - mask) * face_region).astype(np.uint8)
+        tgt_np[y1:y2, x1:x2] = blended_face
         final_image = Image.fromarray(tgt_np)
 
         output_buffer = BytesIO()
