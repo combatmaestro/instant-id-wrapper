@@ -16,7 +16,6 @@ from transformers import CLIPImageProcessor
 
 from ip_adapter.ip_adapter import IPAdapterXL
 
-# ========== FastAPI setup ==========
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -26,7 +25,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ========== Model loading ==========
 print("[INFO] Loading InstantID components...")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -53,125 +51,38 @@ except Exception as e:
     traceback.print_exc()
     raise e
 
-# ========== Input model ==========
 class FaceSwapRequest(BaseModel):
     source_url: str
     target_url: str
     prompt: str = Field(default="best quality, high quality")
 
-# ========== Endpoint ==========
 @app.post("/swap-face")
 async def swap_face(request: FaceSwapRequest):
     try:
-        src_response = requests.get(request.source_url)
-        tgt_response = requests.get(request.target_url)
+        src_img = Image.open(BytesIO(requests.get(request.source_url).content)).convert("RGB")
+        tgt_img = Image.open(BytesIO(requests.get(request.target_url).content)).convert("RGB")
 
-        src_img = Image.open(BytesIO(src_response.content)).convert("RGB")
-        tgt_img = Image.open(BytesIO(tgt_response.content)).convert("RGB")
-        tgt_np = np.array(tgt_img)
-
-        faces_src = face_analysis.get(np.array(src_img))
-        if not faces_src:
+        faces = face_analysis.get(np.array(src_img))
+        if not faces:
             return {"status": "error", "message": "No face detected in source image."}
 
-        face_src = faces_src[0]
-        print("[INFO] Detected source face[0]:", face_src)
+        face = faces[0]
+        embedding = face.embedding  # identity embedding
 
-        bbox_src = face_src.get('bbox')
-        if bbox_src is None or len(bbox_src) != 4:
-            return {"status": "error", "message": "Invalid or missing bounding box for face."}
-
-        x1_src, y1_src, x2_src, y2_src = map(int, bbox_src)
-        h_src, w_src = src_img.size
-        x1_src, y1_src = max(0, x1_src), max(0, y1_src)
-        x2_src, y2_src = min(w_src, x2_src), min(h_src, y2_src)
-
-        if x2_src <= x1_src or y2_src <= y1_src:
-            return {"status": "error", "message": "Source bounding box resulted in invalid region."}
-        faces_tgt = face_analysis.get(np.array(tgt_img))
-        if not faces_tgt:
-            return {"status": "error", "message": "No face detected in target image."}
-
-        face_tgt = faces_tgt[0]
-        print("[INFO] Detected target face[0]:", face_tgt)
-
-        bbox_tgt = face_tgt.get('bbox')
-        if bbox_tgt is None or len(bbox_tgt) != 4:
-            return {"status": "error", "message": "Invalid or missing bounding box for target face."}
-
-        x1, y1, x2, y2 = map(int, bbox_tgt)
-        h_tgt, w_tgt = tgt_np.shape[:2]
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w_tgt, x2), min(h_tgt, y2)
-
-        if x2 <= x1 or y2 <= y1:
-            return {"status": "error", "message": "Bounding box resulted in invalid region."}
-
-        cropped_np = np.array(src_img)[y1_src:y2_src, x1_src:x2_src]
-
-        if cropped_np.size == 0:
-            return {"status": "error", "message": "Cropped face is empty."}
-
-        face_img = Image.fromarray(cropped_np)
-
-        prompt = request.prompt.strip() if request.prompt else "best quality, high quality"
-        negative_prompt = "monochrome, lowres, bad anatomy, worst quality, low quality"
-
-        print("[INFO] Using prompt:", prompt)
-        print("[INFO] Using negative_prompt:", negative_prompt)
-
-        # Generate a new face only (square output)
-        # Make width and height divisible by 8
-        w, h = face_img.width, face_img.height
-        w -= w % 8
-        h -= h % 8
-
-        new_face_img = ip_adapter.generate(
-            pil_image=face_img,
-            face_image=face_img,
-            prompt=prompt,
-            negative_prompt=negative_prompt,
+        images = ip_adapter.generate(
+            pil_image=tgt_img,
+            face_image=None,
+            clip_image_embeds=torch.tensor(embedding).unsqueeze(0),
+            prompt=request.prompt,
+            negative_prompt="monochrome, lowres, bad anatomy, worst quality, low quality",
             num_samples=1,
             num_inference_steps=40,
-            seed=42,
-            height=h,
-            width=w
-        )[0]
-
-        # Resize generated face to match target face bounding box
-        new_face_img_resized = new_face_img.resize((x2 - x1, y2 - y1), Image.LANCZOS)
-        new_face_np = np.array(new_face_img_resized)
-
-        # Align the generated face to target face landmarks
-        src_landmarks = np.array(face_src['kps'])
-        tgt_landmarks = np.array(face_tgt['kps'])
-
-        # Resize landmarks to match face image size
-        face_landmarks = src_landmarks - np.array([x1_src, y1_src])
-        scale_x = w / (x2_src - x1_src)
-        scale_y = h / (y2_src - y1_src)
-        face_landmarks[:, 0] *= scale_x
-        face_landmarks[:, 1] *= scale_y
-
-        # Estimate transformation from resized source landmarks to target
-        transform_matrix, _ = cv2.estimateAffinePartial2D(face_landmarks, tgt_landmarks)
-        aligned_face = cv2.warpAffine(np.array(new_face_img_resized), transform_matrix, (tgt_np.shape[1], tgt_np.shape[0]))
-
-        # Create mask
-        mask = np.zeros_like(tgt_np, dtype=np.uint8)
-        hull = cv2.convexHull(tgt_landmarks.astype(np.int32))
-        cv2.fillConvexPoly(mask, hull, (255, 255, 255))
-        mask = cv2.GaussianBlur(mask, (51, 51), 0).astype(np.float32) / 255.0
-
-        aligned_face = aligned_face.astype(np.float32)
-        tgt_np_float = tgt_np.astype(np.float32)
-        blended = (mask * aligned_face + (1 - mask) * tgt_np_float).astype(np.uint8)
-        final_image = Image.fromarray(blended).convert("RGB")
+            seed=42
+        )
 
         from fastapi.responses import StreamingResponse
-
         output_buffer = BytesIO()
-        final_image.save(output_buffer, format="PNG")
+        images[0].save(output_buffer, format="PNG")
         output_buffer.seek(0)
 
         return StreamingResponse(output_buffer, media_type="image/png")
@@ -183,7 +94,7 @@ async def swap_face(request: FaceSwapRequest):
 
 @app.get("/")
 def root():
-    return {"message": "InstantID API running with IP-Adapter + SDXL."}
+    return {"message": "InstantID API running with identity embedding face swap."}
 
 if __name__ == "__main__":
     import uvicorn
